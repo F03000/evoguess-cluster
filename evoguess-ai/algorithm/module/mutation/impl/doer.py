@@ -1,0 +1,83 @@
+from math import pow
+
+from ..mutation import Mutation
+
+from typings.optional import Int
+from instance.module.variables import Backdoor
+
+
+class Doer(Mutation):
+    slug = 'mutation:doer'
+
+    def __init__(self, beta: int = 3, random_seed: Int = None, taboo_file: str = None):
+        self.beta = beta
+        self.dict = {}
+        self.count = 0
+        with open(taboo_file) as f:
+            for line in f:  # read rest of lines
+                array = [int(x) for x in line.split()]
+                good_arr0 = array[0] - 1
+                result = []
+                for a in array[1:]:
+                    result.append(a - 1)
+                if good_arr0 not in self.dict:
+                    self.dict[good_arr0] = [result]
+                elif result not in self.dict[good_arr0]:
+                    self.dict[good_arr0].append(result)
+        super().__init__(random_seed)
+
+    def __get_alpha(self, size: int) -> int:
+        bound = size // 2 + 1
+        if bound < 3:
+            return 1
+
+        ll, p, rr = 0., self.random_state.rand(), 0.
+        c = sum(1. / pow(i, self.beta) for i in range(1, bound))
+        for k in range(1, bound):
+            ll = rr
+            rr += (1. / (c * pow(k, self.beta)))
+            if ll <= p < rr:
+                return k
+
+        return bound - 1
+
+    def mutate(self, backdoor: Backdoor) -> Backdoor:
+        while True:
+            mask = backdoor.get_mask()
+            prob = self.__get_alpha(len(mask)) / len(mask)
+
+            # todo: move _distribution to tool funcs
+            distribution = self._distribution(prob, len(mask))
+            for i, value in enumerate(distribution):
+                if prob > value:
+                    mask[i] = not mask[i]
+            bad_indicator = False
+            for i, value in enumerate(mask):
+                if value == 1 and i in self.dict:
+                    for arrays in self.dict[i]:
+                        bad_indicator = True
+                        for index in arrays:
+                            if index < len(mask) and mask[index] == 0:
+                                bad_indicator = False
+                                break
+                        if bad_indicator:
+                            break
+                    if bad_indicator:
+                        break
+            if bad_indicator:
+                self.count = self.count + 1
+                print("we did it " + str(self.count))
+                continue
+
+            return backdoor.get_copy(mask)
+
+    def __info__(self):
+        return {
+            **super().__info__(),
+            'beta': self.beta
+        }
+
+
+__all__ = [
+    'Doer'
+]
